@@ -417,6 +417,8 @@ async def lifespan(app: FastAPI):
         if await create_admin_user(WEBUI_ADMIN_EMAIL, WEBUI_ADMIN_PASSWORD, WEBUI_ADMIN_NAME):
             # Disable signup since we now have an admin
             await Config.upsert({'ui.enable_signup': False})
+        if not await Users.has_users():
+            raise RuntimeError('Configured administrator bootstrap failed; refusing an unowned instance')
 
     if SAFE_MODE:
         await Functions.deactivate_all_functions()

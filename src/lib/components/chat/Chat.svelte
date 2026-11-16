@@ -4154,7 +4154,8 @@
 			if (result.status === 'submitted' || result.status === 'handled') {
 				if (originalId || chatLoadController === loadController) await clearDraft(originalId);
 				if (history === owner && !loading && chatLoadController === loadController) {
-					annotations = annotations.filter((note) => !notes.some((sent) => sent.id === note.id));
+					if (result.status === 'submitted')
+						annotations = annotations.filter((note) => !notes.some((sent) => sent.id === note.id));
 					await saveDraft(getChatInputDraft(), getDraftChatId(), false);
 				}
 			} else if (history === owner && !loading && chatLoadController === loadController) {
