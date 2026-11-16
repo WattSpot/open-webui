@@ -4103,6 +4103,7 @@
 		const activeChatId = $chatId;
 		const loadController = chatLoadController;
 		const notes = [...annotations];
+		const targetModels = [...selectedModelIds];
 		if (
 			notes.length &&
 			(generating ||
@@ -4115,8 +4116,8 @@
 		submitting = true;
 		try {
 			await saveDraft(draft, originalId, false);
-			const model = selectedModelIds[0];
-			if (notes.length && (selectedModelIds.length !== 1 || model?.split(':')[2] !== 'codex'))
+			const model = targetModels[0];
+			if (notes.length && (targetModels.length !== 1 || model?.split(':')[2] !== 'codex'))
 				throw new Error('UI comments require one Workbot Codex model.');
 			if (model?.startsWith('agent:')) {
 				const terminalId = decodeURIComponent(model.split(':')[1]);
@@ -4150,7 +4151,7 @@
 					);
 			} else if (notes.length) throw new Error('UI comments require this Workbot’s Codex model.');
 			if (history !== owner || $chatId !== activeChatId || loading) return { status: 'rejected' };
-			const result = await submitHandlerCore(userPrompt, options);
+			const result = await submitHandlerCore(userPrompt, options, notes, targetModels);
 			if (result.status === 'submitted' || result.status === 'handled') {
 				if (originalId || chatLoadController === loadController) await clearDraft(originalId);
 				if (history === owner && !loading && chatLoadController === loadController) {
@@ -4184,7 +4185,9 @@
 		{
 			_raw = false,
 			bridge: bridgeRequest = null
-		}: { _raw?: boolean; bridge?: { userMessageId: string; modelId: string } | null } = {}
+		}: { _raw?: boolean; bridge?: { userMessageId: string; modelId: string } | null },
+		notes: PreviewAnnotation[],
+		targetModels: string[]
 	): Promise<BridgeSubmission | { status: 'handled' }> => {
 		if (embedded && onBeforeNoteSubmit) {
 			try {
@@ -4364,6 +4367,12 @@
 			}
 		}
 
+		// Preflight and uploads may yield while the user changes the selected model.
+		if (!equal(targetModels, selectedModelIds))
+			throw new Error(
+				'Model changed while preparing this message. Your draft is saved; send again.'
+			);
+
 		// Clear input and submit
 		messageInput?.setText('');
 		prompt = '';
@@ -4372,7 +4381,7 @@
 		messageInput?.setText('');
 
 		return (
-			(await submitPrompt(annotationPrompt(userPrompt, annotations), _files, bridgeRequest)) ?? {
+			(await submitPrompt(annotationPrompt(userPrompt, notes), _files, bridgeRequest)) ?? {
 				status: 'rejected'
 			}
 		);
