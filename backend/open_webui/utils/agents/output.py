@@ -49,6 +49,7 @@ class Output:
                     'output': copy.deepcopy(self.items),
                     'done': done,
                     'usage': self.usage,
+                    'agent_cwd': self.state.get('cwd'),
                 },
             }
         )

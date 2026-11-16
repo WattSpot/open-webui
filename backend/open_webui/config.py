@@ -37,6 +37,7 @@ from open_webui.env import (
     log,
 )
 from open_webui.models.config import Config
+from open_webui.startup_config import startup, registered_values
 from open_webui.utils.json_codec import JSONCodec
 
 
@@ -2160,6 +2161,7 @@ BYPASS_ADMIN_ACCESS_CONTROL = (
 )
 
 ENABLE_ADMIN_ANALYTICS = os.getenv('ENABLE_ADMIN_ANALYTICS', 'True').lower() == 'true'
+BYPASS_ADMIN_ACCESS_CONTROL = startup.get('BYPASS_ADMIN_ACCESS_CONTROL', BYPASS_ADMIN_ACCESS_CONTROL)
 
 ENABLE_COMMUNITY_SHARING = os.getenv('ENABLE_COMMUNITY_SHARING', 'True').lower() == 'true'
 
@@ -3247,6 +3249,7 @@ DEFAULT_CONFIG = {
     'ui.enable_password_change_form': ENABLE_PASSWORD_CHANGE_FORM,
     'ui.default_locale': DEFAULT_LOCALE,
     'ui.default_models': DEFAULT_MODELS,
+    'ui.default_agent_provider': '',
     'ui.default_pinned_models': DEFAULT_PINNED_MODELS,
     'ui.default_interface_settings': DEFAULT_INTERFACE_SETTINGS,
     'ui.visibility': UI_VISIBILITY,
@@ -3425,4 +3428,5 @@ Config.configure(
     defaults=DEFAULT_CONFIG,
     enable_persistent=ENABLE_PERSISTENT_CONFIG,
     enable_oauth_persistent=ENABLE_OAUTH_PERSISTENT_CONFIG,
+    file_values=registered_values(DEFAULT_CONFIG),
 )

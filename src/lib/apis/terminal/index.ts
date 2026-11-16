@@ -264,6 +264,7 @@ export type TerminalServer = {
 	contexts?: Record<string, false | { context_id?: string }>;
 	config?: {
 		chat_uploads?: 'default' | 'filesystem';
+		previews?: import('$lib/utils/previewAnnotations').Preview[];
 		[key: string]: unknown;
 	};
 };

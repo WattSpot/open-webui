@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 import logging
 import os
+from open_webui.startup_config import startup
 import pkgutil
 import re
 import shutil
@@ -40,7 +41,7 @@ except ImportError:
     print('dotenv not installed, skipping...')
 
 DOCKER = os.getenv('DOCKER', 'False').lower() == 'true'
-USE_SLIM = os.getenv('USE_SLIM_DOCKER', 'False').lower() == 'true'
+USE_SLIM = startup.get('USE_SLIM_DOCKER', os.getenv('USE_SLIM_DOCKER', 'False').lower() == 'true')
 
 USE_CUDA = os.getenv('USE_CUDA_DOCKER', 'false')
 DEVICE_TYPE = 'cpu'
@@ -217,10 +218,10 @@ CHANGELOG = changelog_json
 
 # Data/frontend build dir
 
-DATA_DIR = Path(os.getenv('DATA_DIR', BACKEND_DIR / 'data')).resolve()
+DATA_DIR = Path(startup.get('DATA_DIR', os.getenv('DATA_DIR', BACKEND_DIR / 'data'))).resolve()
 
 if FROM_INIT_PY:
-    NEW_DATA_DIR = Path(os.getenv('DATA_DIR', OPEN_WEBUI_DIR / 'data')).resolve()
+    NEW_DATA_DIR = Path(startup.get('DATA_DIR', os.getenv('DATA_DIR', OPEN_WEBUI_DIR / 'data'))).resolve()
     NEW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # Check if the data directory exists in the package directory
@@ -239,7 +240,7 @@ if FROM_INIT_PY:
         # Remove the old data directory
         shutil.rmtree(DATA_DIR)
 
-    DATA_DIR = Path(os.getenv('DATA_DIR', OPEN_WEBUI_DIR / 'data'))
+    DATA_DIR = Path(startup.get('DATA_DIR', os.getenv('DATA_DIR', OPEN_WEBUI_DIR / 'data')))
 
 STATIC_DIR = Path(os.getenv('STATIC_DIR', OPEN_WEBUI_DIR / 'static'))
 
@@ -358,7 +359,7 @@ ENABLE_PUBLIC_ACTIVE_USERS_COUNT = os.getenv('ENABLE_PUBLIC_ACTIVE_USERS_COUNT',
 RESET_CONFIG_ON_START = os.getenv('RESET_CONFIG_ON_START', 'False').lower() == 'true'
 ENABLE_REALTIME_CHAT_SAVE = os.getenv('ENABLE_REALTIME_CHAT_SAVE', 'False').lower() == 'true'
 ENABLE_QUERIES_CACHE = os.getenv('ENABLE_QUERIES_CACHE', 'False').lower() == 'true'
-ENABLE_ADMIN_CHAT_ACCESS = os.getenv('ENABLE_ADMIN_CHAT_ACCESS', 'True').lower() == 'true'
+ENABLE_ADMIN_CHAT_ACCESS = startup.get('ENABLE_ADMIN_CHAT_ACCESS', os.getenv('ENABLE_ADMIN_CHAT_ACCESS', 'True').lower() == 'true')
 RAG_SYSTEM_CONTEXT = os.getenv('RAG_SYSTEM_CONTEXT', 'False').lower() == 'true'
 
 # Empty by default: chunk metadata also holds internal bookkeeping (file hashes, collection names, scores).
@@ -805,9 +806,9 @@ ENABLE_COMPRESSION_MIDDLEWARE = os.getenv('ENABLE_COMPRESSION_MIDDLEWARE', 'True
 
 # Optional env vars for creating an admin account on startup
 # Useful for headless/automated deployments
-WEBUI_ADMIN_EMAIL = os.getenv('WEBUI_ADMIN_EMAIL', '')
+WEBUI_ADMIN_EMAIL = startup.get('WEBUI_ADMIN_EMAIL', os.getenv('WEBUI_ADMIN_EMAIL', ''))
 WEBUI_ADMIN_PASSWORD = os.getenv('WEBUI_ADMIN_PASSWORD', '')
-WEBUI_ADMIN_NAME = os.getenv('WEBUI_ADMIN_NAME', 'Admin')
+WEBUI_ADMIN_NAME = startup.get('WEBUI_ADMIN_NAME', os.getenv('WEBUI_ADMIN_NAME', 'Admin'))
 
 WEBUI_AUTH_TRUSTED_EMAIL_HEADER = os.getenv('WEBUI_AUTH_TRUSTED_EMAIL_HEADER', None)
 WEBUI_AUTH_TRUSTED_NAME_HEADER = os.getenv('WEBUI_AUTH_TRUSTED_NAME_HEADER', None)
@@ -1183,7 +1184,7 @@ ENABLE_PLUGINS = os.getenv('ENABLE_PLUGINS', 'True').lower() == 'true'
 # Deployment controls: the master switch always overrides all feature switches.
 ENABLE_TOOLS = ENABLE_PLUGINS and os.getenv('ENABLE_TOOLS', 'True').lower() == 'true'
 ENABLE_FUNCTIONS = ENABLE_PLUGINS and os.getenv('ENABLE_FUNCTIONS', 'True').lower() == 'true'
-ENABLE_TOOL_SERVERS = ENABLE_PLUGINS and os.getenv('ENABLE_TOOL_SERVERS', 'True').lower() == 'true'
+ENABLE_TOOL_SERVERS = ENABLE_PLUGINS and startup.get('ENABLE_TOOL_SERVERS', os.getenv('ENABLE_TOOL_SERVERS', 'True').lower() == 'true')
 
 ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS = (
     os.getenv('ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS', 'True').lower() == 'true'

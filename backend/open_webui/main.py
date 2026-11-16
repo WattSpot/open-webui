@@ -2428,6 +2428,7 @@ async def get_app_config(request: Request):
         'memories.enable',
         'subagents.enable',
         'ui.default_models',
+        'ui.default_agent_provider',
         'ui.default_pinned_models',
         'ui.default_interface_settings',
         'ui.visibility',
@@ -2563,6 +2564,7 @@ async def get_app_config(request: Request):
         **(
             {
                 'default_models': ','.join(group_defaults) if group_defaults else config.get('ui.default_models'),
+                'default_agent_provider': config.get('ui.default_agent_provider'),
                 'default_pinned_models': config.get('ui.default_pinned_models'),
                 'default_prompt_suggestions': config.get('ui.prompt_suggestions'),
                 'default_prompt_suggestions_i18n': config.get('ui.prompt_suggestions_i18n'),

@@ -8,6 +8,7 @@ export type PanelTabKind =
 	| 'file'
 	| 'terminal'
 	| 'browser'
+	| 'site-preview'
 	| 'desktop'
 	| 'artifacts'
 	| 'preview'

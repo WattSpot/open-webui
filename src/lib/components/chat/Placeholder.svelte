@@ -1,4 +1,7 @@
 <script lang="ts">
+	import type { PreviewAnnotation } from '$lib/utils/previewAnnotations';
+	export let annotations: PreviewAnnotation[] = [];
+	export let removeAnnotation: (id: string) => void = () => {};
 	import type { TerminalContext } from '$lib/types';
 	import { toast } from 'svelte-sonner';
 	import { marked } from 'marked';
@@ -272,6 +275,8 @@
 						{onParamChange}
 						bind:files
 						bind:prompt
+						{annotations}
+						{removeAnnotation}
 						bind:autoScroll
 						bind:selectedToolIds
 						bind:selectedSkillIds
