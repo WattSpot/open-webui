@@ -243,7 +243,13 @@
 			return;
 		}
 
-		const mineTypes = [
+		// OpenAI-compatible gateways may need to read the recording duration before forwarding it.
+		const transcriptionTypes =
+			transcribe && $config.audio.stt.engine === 'openai'
+				? ['audio/mp4;codecs=mp4a.40.2', 'audio/ogg;codecs=opus', 'audio/mp4']
+				: [];
+		const mimeTypes = [
+			...transcriptionTypes,
 			'audio/webm; codecs=opus',
 			'audio/webm',
 			'audio/ogg; codecs=opus',
@@ -252,7 +258,7 @@
 		];
 
 		mediaRecorder = new MediaRecorder(stream, {
-			mimeType: mineTypes.find((type) => MediaRecorder.isTypeSupported(type))
+			mimeType: mimeTypes.find((type) => MediaRecorder.isTypeSupported(type))
 		});
 
 		mediaRecorder.onstart = async () => {

@@ -88,6 +88,12 @@
 	import QuickOpen from './ChatTabs/QuickOpen.svelte';
 	import VoiceNote from './ChatTabs/VoiceNote.svelte';
 	import Browser from './ChatTabs/Browser.svelte';
+	import SitePreview from './ChatTabs/SitePreview.svelte';
+	import {
+		agentDirectory,
+		type Preview,
+		type PreviewSelection
+	} from '$lib/utils/previewAnnotations';
 	import Desktop from './ChatTabs/Desktop.svelte';
 	import XTerminal from './XTerminal.svelte';
 	import CallPanel from './MessageInput/CallPanel.svelte';
@@ -113,6 +119,11 @@
 
 	export let chatId: string | null = null;
 	export let chatLoading = false;
+	export let onAnnotate: (
+		selection: PreviewSelection,
+		comment: string,
+		terminalId: string
+	) => boolean;
 	export let folderId: string | null = null;
 	export let terminalContext: TerminalContext | null = null;
 	export let chatUser = null;
@@ -424,6 +435,7 @@
 			file: 'page',
 			terminal: 'terminal',
 			browser: 'browser',
+			'site-preview': 'browser',
 			desktop: 'monitor',
 			artifacts: 'code',
 			preview: 'browser',
@@ -1084,7 +1096,9 @@
 	$: newTabViews = availableViews.filter(
 		(view) => view.kind !== 'files' && view.kind !== 'voice' && view.available
 	);
-	$: canOpenNewTab = showFilesTab || terminalFilesAvailable || newTabViews.length > 0;
+	$: previews = (selectedSystemTerminal?.config?.previews ?? []) as Preview[];
+	$: canOpenNewTab =
+		showFilesTab || terminalFilesAvailable || newTabViews.length > 0 || previews.length > 0;
 
 	const quickSplit = () => {
 		if (tabs.tabs.length < 2) {
@@ -1315,8 +1329,10 @@
 		showOverview.set(false);
 	});
 
+	// Preserve native agent selection when its terminal is unavailable.
 	// Clear selected direct terminal if user lost permission
 	$: if (
+		!modelId?.startsWith('agent:') &&
 		$selectedTerminalId &&
 		$terminalServers !== null &&
 		!($terminalServers ?? []).some((t) => t.id && t.id === $selectedTerminalId) &&
@@ -1638,6 +1654,26 @@
 					>
 						{$i18n.t('Terminal connection unavailable')}
 					</div>
+				{:else if tab.kind === 'site-preview'}
+					{@const preview = (
+						($terminalServers ?? []).find((server) => server.id === tab.terminalId)?.config
+							?.previews ?? []
+					).find((item: Preview) => item.id === tab.path)}
+					{#if preview && connection}
+						{#key `${chatId}:${tab.id}`}
+							<SitePreview
+								{preview}
+								{connection}
+								{chatId}
+								directory={agentDirectory(history) ||
+									(terminalContext?.terminalId === tab.terminalId &&
+										terminalContext?.currentDirectory) ||
+									'/home/vscode/projects/wattspot'}
+								active={panelVisible && visibleTabIds.has(tab.id) && !chatLoading}
+								onAnnotate={(selection, comment) => onAnnotate(selection, comment, tab.terminalId!)}
+							/>
+						{/key}
+					{:else}<p role="status" class="p-4 text-sm">Preview connection unavailable.</p>{/if}
 				{:else if tab.kind === 'voice'}
 					<CallPanel
 						{bridge}
@@ -2003,6 +2039,21 @@
 										>{$i18n.t('New Terminal')}</span
 									><HotkeyHint name="newTerminal" className="ms-auto" /></button
 								>{/if}
+							{#each previews as preview}
+								<button
+									on:click={() =>
+										openPanel(
+											{
+												id: JSON.stringify(['site-preview', $selectedTerminalId, preview.id]),
+												kind: 'site-preview',
+												label: preview.label,
+												terminalId: $selectedTerminalId!,
+												path: preview.id
+											},
+											true
+										)}><Icon name="browser" size={14} /><span>{preview.label}</span></button
+								>
+							{/each}
 							{#if browserEnabled}<button on:click={() => openBrowser()}
 									><Icon name="browser" size={14} /><span class="flex-1 text-start"
 										>{$i18n.t('Browser')}</span

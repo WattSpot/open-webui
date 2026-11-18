@@ -38,8 +38,13 @@ def main(
 def serve(
     host: str = '0.0.0.0',
     port: int = 8080,
+    config: Annotated[Path | None, typer.Option('--config', exists=True, dir_okay=False)] = None,
 ):
-    os.environ['FROM_INIT_PY'] = 'true'
+    if config is not None:
+        from open_webui.startup_config import load
+
+        load(config)
+    os.environ['FROM_INIT_PY'] = str(not (Path(__file__).resolve().parent.parent / 'start.sh').exists()).lower()
     if os.getenv('WEBUI_SECRET_KEY') is None:
         typer.echo('Loading WEBUI_SECRET_KEY from file, not provided as an environment variable.')
         if not KEY_FILE.exists():
@@ -77,6 +82,9 @@ def serve(
 
     import open_webui.main  # noqa: F401
     from open_webui.env import UVICORN_WORKERS, UVICORN_WS_PER_MESSAGE_DEFLATE
+
+    if config is not None and UVICORN_WORKERS != 1:
+        raise typer.BadParameter('--config currently requires one Uvicorn worker')
 
     # On Windows, uvicorn's default loop factory hardcodes ProactorEventLoop,
     # which is incompatible with psycopg v3 async.  Setting loop='none' lets

@@ -113,6 +113,7 @@ class Config(Base):
     DEFAULTS: ClassVar[dict[str, Any]] = {}
     PERSISTENT_ENABLED: ClassVar[bool] = True
     OAUTH_PERSISTENT_ENABLED: ClassVar[bool] = False
+    FILE_KEYS: ClassVar[frozenset[str]] = frozenset()
 
     # Class methods
 
@@ -123,8 +124,11 @@ class Config(Base):
         defaults: dict[str, Any] | None = None,
         enable_persistent: bool = True,
         enable_oauth_persistent: bool = False,
+        file_values: dict[str, Any] | None = None,
     ) -> None:
         cls.DEFAULTS = dict(defaults or {})
+        cls.DEFAULTS.update(file_values or {})
+        cls.FILE_KEYS = frozenset(file_values or {})
         cls.PERSISTENT_ENABLED = enable_persistent
         cls.OAUTH_PERSISTENT_ENABLED = enable_oauth_persistent
 
@@ -134,6 +138,8 @@ class Config(Base):
 
     @classmethod
     def persistent_enabled_for(cls, key: str) -> bool:
+        if key in cls.FILE_KEYS:
+            return False
         if not cls.PERSISTENT_ENABLED:
             return False
         if key.startswith('oauth.') and not cls.OAUTH_PERSISTENT_ENABLED:
@@ -195,14 +201,22 @@ class Config(Base):
             values = {row.key: row.value for row in result.scalars().all()}
             if not Config.OAUTH_PERSISTENT_ENABLED:
                 values.update({key: value for key, value in Config.DEFAULTS.items() if key.startswith('oauth.')})
+            values.update({key: Config.DEFAULTS[key] for key in Config.FILE_KEYS})
             return values
 
     @staticmethod
     async def upsert(updates: dict, *, db: AsyncSession | None = None) -> None:
         """Upsert multiple config key-value pairs. Raises on failure."""
+        for key, value in updates.items():
+            if key in Config.FILE_KEYS and _json_value(value) != Config.DEFAULTS[key]:
+                raise ValueError(f'{key} is managed by the configuration file')
         persistent_updates = {}
         for key, value in updates.items():
             value = _json_value(value)
+            if key in Config.FILE_KEYS:
+                if value != Config.DEFAULTS[key]:
+                    raise ValueError(f'{key} is managed by the configuration file')
+                continue
             if Config.persistent_enabled_for(key):
                 persistent_updates[key] = value
             else:
@@ -230,6 +244,8 @@ class Config(Base):
     @staticmethod
     async def delete(key: str) -> bool:
         """Delete a config key. Returns True if it existed."""
+        if key in Config.FILE_KEYS:
+            raise ValueError(f'{key} is managed by the configuration file')
         async with get_async_db() as db:
             row = await db.get(Config, key)
             if row:

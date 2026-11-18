@@ -1,4 +1,8 @@
 <script lang="ts">
+	import PreviewComment from './PreviewComment.svelte';
+	import type { PreviewAnnotation } from '$lib/utils/previewAnnotations';
+	export let annotations: PreviewAnnotation[] = [];
+	export let removeAnnotation: (id: string) => void = () => {};
 	import type { TerminalContext } from '$lib/types';
 	import {
 		estimateTokens,
@@ -2265,6 +2269,26 @@
 								</div>
 							{/if}
 
+							{#if annotations.length}
+								<ul
+									aria-label="UI comments in draft"
+									class="mx-3 mt-3 max-h-40 space-y-2 overflow-auto text-sm"
+								>
+									{#each annotations as note (note.id)}
+										<li class="flex items-start gap-2 rounded-lg bg-gray-50 p-2 dark:bg-gray-800">
+											<div class="min-w-0 flex-1">
+												<PreviewComment {note} />
+											</div>
+											<button
+												type="button"
+												aria-label="Remove UI comment"
+												class="px-2"
+												on:click={() => removeAnnotation(note.id)}>×</button
+											>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 							{#if files.length > 0}
 								<div
 									class="mx-2 mt-2 pb-1 flex items-center flex-wrap gap-1.5"
@@ -2504,7 +2528,7 @@
 
 																if (enterPressed) {
 																	e.preventDefault();
-																	if (prompt !== '' || files.length > 0) {
+																	if (prompt !== '' || files.length > 0 || annotations.length > 0) {
 																		dispatch('submit', prompt);
 																	}
 																}
@@ -2957,7 +2981,7 @@
 										{onParamChange}
 									/>
 
-									{#if isActive && (history.messages[history.currentId]?.user_id ?? $_user?.id) === $_user?.id && prompt === '' && files.length === 0}
+									{#if isActive && (history.messages[history.currentId]?.user_id ?? $_user?.id) === $_user?.id && prompt === '' && files.length === 0 && annotations.length === 0}
 										<div class=" flex items-center">
 											<Tooltip content={$i18n.t('Stop')}>
 												<button
@@ -3027,7 +3051,7 @@
 											{/if}
 										{/if}
 
-										{#if callEnabled && !embedded && prompt === '' && files.length === 0 && showCallButton}
+										{#if callEnabled && !embedded && prompt === '' && files.length === 0 && annotations.length === 0 && showCallButton}
 											<div class=" flex items-center">
 												<!-- {$i18n.t('Call')} -->
 												<Tooltip
@@ -3108,11 +3132,17 @@
 															? 'send-message-button'
 															: `${inputId}-send-message-button`}
 														aria-label={$i18n.t('Send message')}
-														class="{!(prompt === '' && files.length === 0)
+														class="{!(
+															prompt === '' &&
+															files.length === 0 &&
+															annotations.length === 0
+														)
 															? 'bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 '
 															: 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-full p-[0.3125rem] self-center"
 														type="submit"
-														disabled={prompt === '' && files.length === 0}
+														disabled={prompt === '' &&
+															files.length === 0 &&
+															annotations.length === 0}
 													>
 														<svg
 															xmlns="http://www.w3.org/2000/svg"

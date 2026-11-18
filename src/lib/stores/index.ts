@@ -390,6 +390,7 @@ type Document = {
 };
 
 type Config = {
+	default_agent_provider?: string;
 	file?: {
 		max_size?: number | null;
 		max_count?: number | null;

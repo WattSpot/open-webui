@@ -281,7 +281,7 @@ async def list_terminal_servers(request: Request, user=Depends(get_verified_user
             'url': '' if connection.get('owner_id') else connection.get('url', ''),
             'name': connection.get('name', ''),
             'contexts': terminal_contexts(connection),
-            'config': {'chat_uploads': terminal_chat_uploads(connection)},
+            'config': {'chat_uploads': terminal_chat_uploads(connection), 'previews': [{key: item[key] for key in ('id', 'label', 'url')} for item in (connection.get('config') or {}).get('previews', []) if isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('id', 'label', 'url'))]},
         }
         for connection in connections
         if connection.get('enabled', True) and await has_connection_access(user, connection, user_group_ids)

@@ -107,7 +107,12 @@
 		updateChatParams,
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
-	import { resolveTerminalConnection, setCwd, type FilesystemFile } from '$lib/apis/terminal';
+	import {
+		resolveTerminalConnection,
+		getCwd,
+		setCwd,
+		type FilesystemFile
+	} from '$lib/apis/terminal';
 	import { generateOpenAIChatCompletion, getErrorMessage } from '$lib/apis/openai';
 	import { processUrl, processWebSearch } from '$lib/apis/retrieval';
 	import {
@@ -138,6 +143,14 @@
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
 	import ChatTabs from './ChatTabs.svelte';
+	import {
+		agentDirectory,
+		annotationPrompt,
+		matchesPreviewRoot,
+		restoreAnnotations,
+		type PreviewAnnotation,
+		type PreviewSelection
+	} from '$lib/utils/previewAnnotations';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import ElicitationDialog from './ElicitationDialog.svelte';
 	import DeleteConfirmDialog from '../common/ConfirmDialog.svelte';
@@ -249,13 +262,15 @@
 	let contextUsage = null;
 
 	const normalizeSelectedModels = (modelIds: string[] = []) => {
-		if (
-			modelIds.some(
-				(id) =>
-					id.startsWith('agent:') && decodeURIComponent(id.split(':')[1]) === $selectedTerminalId
-			)
-		)
-			return modelIds;
+		if (modelIds.some((id) => id.startsWith('agent:'))) return modelIds;
+		if ($config?.default_agent_provider) {
+			const saved = ($settings?.models ?? []).filter((id) =>
+				id.startsWith(
+					`agent:${encodeURIComponent($selectedTerminalId ?? '')}:${$config.default_agent_provider}:`
+				)
+			);
+			return saved.length ? saved : [''];
+		}
 		const selected = resolveDefaultModelIds(
 			$models,
 			modelIds,
@@ -514,6 +529,35 @@
 
 	// Chat Input
 	let prompt = '';
+	let annotations: PreviewAnnotation[] = [];
+	let submitting = false;
+	const removeAnnotation = (id: string) => {
+		if (submitting) return;
+		annotations = annotations.filter((item) => item.id !== id);
+		void saveDraft(getChatInputDraft(), getDraftChatId(), false);
+	};
+	const addAnnotation = (selection: PreviewSelection, comment: string, terminalId: string) => {
+		if (submitting || loading || annotations.length >= 20) {
+			toast.error('Wait for the current request or remove a draft comment.');
+			return false;
+		}
+		if (terminalId !== $selectedTerminalId) {
+			toast.error('Select the Workbot that owns this preview.');
+			return false;
+		}
+		const directory = agentDirectory(history) ?? terminalContext?.currentDirectory;
+		if (
+			(Object.keys(history.messages).length && !agentDirectory(history)) ||
+			(directory && !matchesPreviewRoot(selection.root, directory))
+		) {
+			toast.error('Preview uses a different checkout. Start a new chat for that checkout.');
+			return false;
+		}
+		terminalContext = { terminalId, currentDirectory: selection.root };
+		annotations = [...annotations, { ...selection, terminalId, comment, id: uuidv4() }];
+		void saveDraft(getChatInputDraft(), getDraftChatId(), false);
+		return true;
+	};
 	let chatFiles = [];
 	let files: any[] = [];
 	let terminalContext: TerminalContext | null = null;
@@ -836,6 +880,12 @@
 		try {
 			const input = JSON.parse(storageChatInput);
 			prompt = input.prompt ?? '';
+			annotations = restoreAnnotations(input.annotations);
+			if (!Object.keys(history.messages).length && annotations.length)
+				terminalContext = {
+					terminalId: annotations[0].terminalId,
+					currentDirectory: annotations[0].root
+				};
 			messageInput?.setText(prompt);
 			files = input.files ?? [];
 			selectedToolIds = input.selectedToolIds ?? [];
@@ -920,6 +970,7 @@
 		loading = true;
 
 		prompt = '';
+		annotations = [];
 		messageInput?.setText('');
 
 		files = [];
@@ -1058,6 +1109,7 @@
 	};
 
 	$: if (
+		!selectedModels.some((id) => id.startsWith('agent:')) &&
 		$terminalServers !== null &&
 		$selectedTerminalId &&
 		!isTerminalAvailable($selectedTerminalId)
@@ -1073,6 +1125,15 @@
 	) {
 		selectedTerminalId.set(null);
 	}
+
+	$: if (
+		$config?.default_agent_provider &&
+		!chatIdProp &&
+		!Object.keys(history.messages).length &&
+		!$selectedTerminalId &&
+		$terminalServers?.length === 1
+	)
+		selectedTerminalId.set($terminalServers[0].id);
 
 	let lastTerminalSkillSelector: string | null = null;
 	let agentDiscovery = 0;
@@ -1090,13 +1151,6 @@
 			);
 			if (generation === agentDiscovery) {
 				models.set(available);
-				const remaining = selectedModels.filter(
-					(id) => !id.startsWith('agent:') || available.some((model) => model.id === id)
-				);
-				selectedModels =
-					remaining.length || equal(remaining, selectedModels)
-						? remaining
-						: normalizeSelectedModels(remaining);
 			}
 		} catch (error) {
 			console.error('Agent model discovery failed', error);
@@ -2718,6 +2772,7 @@
 		if ($chatId) terminalContext = null;
 		cancelBrowserInteractions();
 		bridge?.end();
+		annotations = [];
 		console.log('initNewChat');
 		resetWebSearchConfirmation();
 
@@ -3052,12 +3107,8 @@
 						: [chatContent.models ?? ''];
 				if (selectedModels[0]?.startsWith('agent:')) {
 					const terminalId = decodeURIComponent(selectedModels[0].split(':')[1]);
-					if (isTerminalAvailable(terminalId)) {
-						selectedTerminalId.set(terminalId);
-						await refreshAgentModels();
-					} else if ($terminalServers !== null) {
-						selectedModels = selectedModels.filter((modelId) => !modelId.startsWith('agent:'));
-					}
+					selectedTerminalId.set(terminalId);
+					await refreshAgentModels();
 				}
 
 				// An empty model list is not evidence that the chat's models are gone.
@@ -3621,6 +3672,7 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId, shared = false) => {
+		if (data.agent_cwd) message.meta = { ...message.meta, agent_cwd: data.agent_cwd };
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
 
 		if (error) {
@@ -4040,13 +4092,100 @@
 		return _chatId;
 	};
 
-	const submitHandler = async (
+	const submitHandler = async (userPrompt: string, options = {}): Promise<BridgeSubmission> => {
+		if (submitting) return { status: 'deferred' };
+		const draft = { ...getChatInputDraft(), prompt: userPrompt };
+		const owner = history;
+		const originalId = getDraftChatId();
+		const activeChatId = $chatId;
+		const loadController = chatLoadController;
+		const notes = [...annotations];
+		const targetModels = [...selectedModelIds];
+		if (
+			notes.length &&
+			(generating ||
+				processing ||
+				files.some((file) => ['uploading', 'error'].includes(file.status)))
+		) {
+			toast.error('Finish the current response and uploads before sending UI comments.');
+			return { status: 'deferred' };
+		}
+		submitting = true;
+		try {
+			await saveDraft(draft, originalId, false);
+			const model = targetModels[0];
+			if (notes.length && (targetModels.length !== 1 || model?.split(':')[2] !== 'codex'))
+				throw new Error('Select one Codex model from this Workbot to send your draft.');
+			if (model?.startsWith('agent:')) {
+				const terminalId = decodeURIComponent(model.split(':')[1]);
+				const connection = resolveTerminalConnection(
+					terminalId,
+					$terminalServers ?? [],
+					[],
+					localStorage.token
+				);
+				if (
+					!connection ||
+					!(await getCwd(connection.baseUrl, connection.key, $chatId || undefined))
+				)
+					throw new Error(
+						'Workbot unavailable. Start it in Coder, then send again. Your draft is saved.'
+					);
+				if (!$models.some((item) => item.id === model)) await refreshAgentModels();
+				if (!$models.some((item) => item.id === model))
+					throw new Error(
+						'Codex model unavailable in this Workbot. Select an available Codex model. Your draft is saved.'
+					);
+				if (
+					notes.some(
+						(note) =>
+							note.terminalId !== terminalId ||
+							!matchesPreviewRoot(note.root, agentDirectory(owner) ?? terminalContext?.currentDirectory)
+					)
+				)
+					throw new Error(
+						'Preview checkout differs from this chat. Start a new chat for that checkout.'
+					);
+			} else if (notes.length) throw new Error('UI comments require this Workbot’s Codex model.');
+			if (history !== owner || $chatId !== activeChatId || loading) return { status: 'rejected' };
+			const result = await submitHandlerCore(userPrompt, options, notes, targetModels);
+			if (result.status === 'submitted' || result.status === 'handled') {
+				if (originalId || chatLoadController === loadController) await clearDraft(originalId);
+				if (history === owner && !loading && chatLoadController === loadController) {
+					if (result.status === 'submitted')
+						annotations = annotations.filter((note) => !notes.some((sent) => sent.id === note.id));
+					await saveDraft(getChatInputDraft(), getDraftChatId(), false);
+				}
+			} else if (history === owner && !loading && chatLoadController === loadController) {
+				prompt = prompt || userPrompt;
+				messageInput?.setText(prompt);
+				if (!files.length) files = draft.files;
+				await saveDraft(getChatInputDraft(), getDraftChatId(), false);
+			}
+			return result.status === 'handled' ? { status: 'rejected' } : result;
+		} catch (error) {
+			toast.error(String(error));
+			if (history === owner && !loading && chatLoadController === loadController) {
+				prompt = prompt || userPrompt;
+				messageInput?.setText(prompt);
+				if (!files.length) files = draft.files;
+				await saveDraft(getChatInputDraft(), getDraftChatId(), false);
+			}
+			return { status: 'rejected' };
+		} finally {
+			submitting = false;
+		}
+	};
+
+	const submitHandlerCore = async (
 		userPrompt: string,
 		{
 			_raw = false,
 			bridge: bridgeRequest = null
-		}: { _raw?: boolean; bridge?: { userMessageId: string; modelId: string } | null } = {}
-	): Promise<BridgeSubmission> => {
+		}: { _raw?: boolean; bridge?: { userMessageId: string; modelId: string } | null },
+		notes: PreviewAnnotation[],
+		targetModels: string[]
+	): Promise<BridgeSubmission | { status: 'handled' }> => {
 		if (embedded && onBeforeNoteSubmit) {
 			try {
 				await onBeforeNoteSubmit();
@@ -4071,17 +4210,17 @@
 		if (String(userPrompt).trim() === '/compact') {
 			clearCommandInput();
 			await handleManualCompact();
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 		if (String(userPrompt).trim() === '/status') {
 			clearCommandInput();
 			handleStatusCommand();
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 		if (String(userPrompt).trim() === '/comments') {
 			clearCommandInput();
 			messageInput?.openComments();
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 		const sideCommand = String(userPrompt)
 			.trim()
@@ -4098,26 +4237,26 @@
 			clearCommandInput();
 			sideChatRequest.set({ parentId: $chatId, prompt: sideCommand[1] ?? '' });
 			showTabs.set('side');
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 		if (String(userPrompt).trim() === '/fork') {
 			clearCommandInput();
 			await handleForkChat();
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 		const modelCommandMatch = String(userPrompt)
 			.trim()
 			.match(/^\/model(?:\s+([\s\S]+))?$/);
 		if (modelCommandMatch) {
 			handleModelCommand(modelCommandMatch[1]?.trim() ?? '');
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 
 		if (pendingOAuthTools.length > 0) {
 			toast.warning($i18n.t('Please connect all required integrations before sending a message'));
 			return { status: 'rejected' };
 		}
-		if (userPrompt === '' && files.length === 0) {
+		if (userPrompt === '' && files.length === 0 && annotations.length === 0) {
 			toast.error($i18n.t('Please enter a prompt'));
 			return { status: 'rejected' };
 		}
@@ -4192,7 +4331,7 @@
 			messageInput?.setText('');
 			prompt = '';
 			files = [];
-			return { status: 'rejected' };
+			return { status: 'handled' };
 		}
 
 		// Check if the assistant is still generating the main response
@@ -4217,13 +4356,19 @@
 				messageInput?.setText('');
 				prompt = '';
 				files = [];
-				return { status: 'rejected' };
+				return { status: 'handled' };
 			} else {
 				// Interrupt: stop current generation and proceed
 				await stopResponse();
 				await tick();
 			}
 		}
+
+		// Preflight and uploads may yield while the user changes the selected model.
+		if (!equal(targetModels, selectedModelIds))
+			throw new Error(
+				'Model changed while preparing this message. Your draft is saved; send again.'
+			);
 
 		// Clear input and submit
 		messageInput?.setText('');
@@ -4233,7 +4378,7 @@
 		messageInput?.setText('');
 
 		return (
-			(await submitPrompt(userPrompt, _files, bridgeRequest)) ?? {
+			(await submitPrompt(annotationPrompt(userPrompt, notes), _files, bridgeRequest)) ?? {
 				status: 'rejected'
 			}
 		);
@@ -4366,6 +4511,7 @@
 		const primaryResponseMessageId = messageIdsList[0]?.message_id;
 		let submittedTaskIds: string[] = [];
 
+		if (!primaryModel || !primaryResponseMessageId) return { status: 'rejected' as const };
 		if (primaryModel && primaryResponseMessageId) {
 			const chatEventEmitter = await getChatEventEmitter(primaryModel.id, _chatId);
 
@@ -4386,6 +4532,7 @@
 						regenerationMessageId
 					}
 				);
+				if (!completion || completion.error) return { status: 'rejected' as const };
 				submittedTaskIds =
 					completion?.task_ids ?? (completion?.task_id ? [completion.task_id] : []);
 			} finally {
@@ -5115,6 +5262,7 @@
 
 	const getChatInputDraft = () => ({
 		prompt,
+		annotations,
 		files: files
 			.filter((file) => file.type !== 'image' && !(file.file instanceof File))
 			.map((file) => ({
@@ -5639,6 +5787,8 @@
 										onParamChange={saveParam}
 										bind:files
 										bind:prompt
+										{annotations}
+										{removeAnnotation}
 										bind:autoScroll
 										bind:selectedToolIds
 										bind:selectedSkillIds
@@ -5674,7 +5824,7 @@
 										onQueueDelete={deleteQueuedMessage}
 										onChange={(data: any) => {
 											if (!$temporaryChatEnabled) {
-												saveDraft(data, getDraftChatId());
+												if (!submitting) saveDraft({ ...data, annotations }, getDraftChatId());
 											}
 										}}
 										onWebSearchToggle={handleWebSearchToggle}
@@ -5682,8 +5832,7 @@
 											showChatVariablesModal = true;
 										}}
 										on:submit={async (e) => {
-											clearDraft(getDraftChatId());
-											if (e.detail || files.length > 0) {
+											if (e.detail || files.length > 0 || annotations.length > 0) {
 												await tick();
 
 												submitHandler(withSelectedText(e.detail));
@@ -5740,6 +5889,8 @@
 										onParamChange={saveParam}
 										bind:files
 										bind:prompt
+										{annotations}
+										{removeAnnotation}
 										bind:autoScroll
 										bind:selectedToolIds
 										bind:selectedSkillIds
@@ -5775,7 +5926,7 @@
 										onQueueDelete={deleteQueuedMessage}
 										onChange={(data: any) => {
 											if (!$temporaryChatEnabled) {
-												saveDraft(data, getDraftChatId());
+												if (!submitting) saveDraft({ ...data, annotations }, getDraftChatId());
 											}
 										}}
 										onWebSearchToggle={handleWebSearchToggle}
@@ -5783,8 +5934,7 @@
 											showChatVariablesModal = true;
 										}}
 										on:submit={async (e) => {
-											clearDraft(getDraftChatId());
-											if (e.detail || files.length > 0) {
+											if (e.detail || files.length > 0 || annotations.length > 0) {
 												await tick();
 												submitHandler(withSelectedText(e.detail));
 											}
@@ -5809,6 +5959,8 @@
 									bind:messageInput
 									bind:files
 									bind:prompt
+									{annotations}
+									{removeAnnotation}
 									bind:autoScroll
 									bind:selectedToolIds
 									bind:selectedSkillIds
@@ -5839,12 +5991,11 @@
 									}}
 									onChange={(data: any) => {
 										if (!$temporaryChatEnabled) {
-											saveDraft(data, getDraftChatId());
+											if (!submitting) saveDraft({ ...data, annotations }, getDraftChatId());
 										}
 									}}
 									on:submit={async (e) => {
-										clearDraft(getDraftChatId());
-										if (e.detail || files.length > 0) {
+										if (e.detail || files.length > 0 || annotations.length > 0) {
 											await tick();
 											submitHandler(withSelectedText(e.detail));
 										}
@@ -5859,6 +6010,7 @@
 			{#if !embedded}
 				<ChatTabs
 					chatLoading={loading}
+					onAnnotate={addAnnotation}
 					bind:fullWidth={fullWidthTabs}
 					bind:mainChatActive
 					bind:mainChatStyle

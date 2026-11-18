@@ -26,6 +26,8 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import FileItem from '$lib/components/common/FileItem.svelte';
 	import Markdown from './Markdown.svelte';
+	import PreviewComment from '../PreviewComment.svelte';
+	import { readAnnotationPrompt } from '$lib/utils/previewAnnotations';
 	import Image from '$lib/components/common/Image.svelte';
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import SubagentResultRow from './SubagentResultRow.svelte';
@@ -70,6 +72,8 @@
 	let editScrollContainer: HTMLDivElement;
 
 	let message = structuredClone(history.messages[messageId]);
+	$: annotated = readAnnotationPrompt(message.content);
+	$: visiblePrompt = annotated?.prompt ?? message.content;
 	$: canBranch = ![...selectedModels, ...(message.models ?? [])].some((id) =>
 		id.startsWith('agent:')
 	);
@@ -446,7 +450,7 @@
 									}`
 								: ' w-full'}"
 						>
-							{#if message.content}
+							{#if visiblePrompt}
 								{#if $settings?.renderMarkdownInUserMessages ?? true}
 									<div
 										class="markdown-prose"
@@ -462,7 +466,7 @@
 									>
 										<Markdown
 											id={`${chatId}-${message.id}`}
-											content={message.content}
+											content={visiblePrompt}
 											{editCodeBlock}
 											{topPadding}
 										/>
@@ -481,10 +485,13 @@
 										}}
 										dir={$settings?.chatDirection ?? 'auto'}
 									>
-										{message.content}
+										{visiblePrompt}
 									</div>
 								{/if}
 							{/if}
+							{#each annotated?.notes ?? [] as note}
+								<PreviewComment {note} />
+							{/each}
 						</div>
 					</div>
 				</div>
