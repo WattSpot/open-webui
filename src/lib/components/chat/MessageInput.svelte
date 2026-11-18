@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PreviewComment from './PreviewComment.svelte';
 	import type { PreviewAnnotation } from '$lib/utils/previewAnnotations';
 	export let annotations: PreviewAnnotation[] = [];
 	export let removeAnnotation: (id: string) => void = () => {};
@@ -2276,10 +2277,7 @@
 									{#each annotations as note (note.id)}
 										<li class="flex items-start gap-2 rounded-lg bg-gray-50 p-2 dark:bg-gray-800">
 											<div class="min-w-0 flex-1">
-												<p class="truncate text-xs text-gray-500">
-													{new URL(note.url).pathname} · {note.label || note.selector}
-												</p>
-												<p class="whitespace-pre-wrap break-words">{note.comment}</p>
+												<PreviewComment {note} />
 											</div>
 											<button
 												type="button"

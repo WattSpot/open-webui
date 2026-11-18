@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	agentDirectory,
 	annotationPrompt,
+	readAnnotationPrompt,
 	matchesPreviewRoot,
 	previewSelection,
 	restoreAnnotations
@@ -46,6 +47,18 @@ describe('preview draft boundary', () => {
 		expect(prompt.match(/Make this clearer/g)).toHaveLength(1);
 		expect(prompt).not.toContain('terminalId');
 		expect(annotationPrompt('unchanged', [])).toBe('unchanged');
+	});
+	it('renders sent notes separately while preserving ordinary or malformed messages', () => {
+		const second = { ...annotation, comment: 'Second line\nExtra context' };
+		for (const prompt of ['', 'Please **review**']) {
+			const encoded = annotationPrompt(prompt, [annotation, second]);
+			const display = readAnnotationPrompt(encoded);
+			expect(display?.prompt).toBe(prompt);
+			expect(display?.notes.map((n) => n.comment)).toEqual([annotation.comment, second.comment]);
+			expect(display?.notes[0].selector).toBe(selection.selector);
+			expect(readAnnotationPrompt(encoded + '\nordinary text')).toBeNull();
+		}
+		expect(readAnnotationPrompt('Ordinary chat')).toBeNull();
 	});
 	it('uses the agent conversation directory instead of the file browser directory', () => {
 		const history = {
