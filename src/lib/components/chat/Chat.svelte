@@ -541,12 +541,8 @@
 			toast.error('Wait for the current request or remove a draft comment.');
 			return false;
 		}
-		if (
-			terminalId !== $selectedTerminalId ||
-			selectedModelIds.length !== 1 ||
-			!selectedModelIds[0]?.startsWith(`agent:${encodeURIComponent(terminalId)}:codex:`)
-		) {
-			toast.error('Select this Workbot’s Codex model before adding a comment.');
+		if (terminalId !== $selectedTerminalId) {
+			toast.error('Select the Workbot that owns this preview.');
 			return false;
 		}
 		const directory = agentDirectory(history) ?? terminalContext?.currentDirectory;
@@ -4119,7 +4115,7 @@
 			await saveDraft(draft, originalId, false);
 			const model = targetModels[0];
 			if (notes.length && (targetModels.length !== 1 || model?.split(':')[2] !== 'codex'))
-				throw new Error('UI comments require one Workbot Codex model.');
+				throw new Error('Select one Codex model from this Workbot to send your draft.');
 			if (model?.startsWith('agent:')) {
 				const terminalId = decodeURIComponent(model.split(':')[1]);
 				const connection = resolveTerminalConnection(
