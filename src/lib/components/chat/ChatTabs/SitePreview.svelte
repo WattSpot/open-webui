@@ -100,8 +100,16 @@
 		await tick();
 		launcher?.focus();
 	}
+	function startPicking() {
+		picking = true;
+		send('pick');
+		frame?.focus();
+	}
 	function saveComment() {
-		if (selection && comment.trim() && onAnnotate(selection, comment.trim())) void dismiss();
+		if (!selection || !comment.trim() || !onAnnotate(selection, comment.trim())) return;
+		selection = null;
+		comment = '';
+		startPicking();
 	}
 	function shortcut(event: KeyboardEvent) {
 		if (!active || event.isComposing) return;
@@ -240,11 +248,8 @@
 						aria-pressed={picking}
 						bind:this={launcher}
 						disabled={!active}
-						on:click={() => {
-							picking = !picking;
-							send(picking ? 'pick' : 'cancel');
-							if (picking) frame?.focus();
-						}}
+						title={picking ? 'Click another element or press Escape to finish' : 'Annotate'}
+						on:click={() => (picking ? dismiss() : startPicking())}
 					>
 						{#if picking}<XMark />Cancel selection{:else}<ChatBubble />Annotate{/if}
 					</button>
