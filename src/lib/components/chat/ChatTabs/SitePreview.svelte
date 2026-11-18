@@ -108,8 +108,18 @@
 		if (event.key === 'Escape' && (selection || picking)) {
 			event.preventDefault();
 			void dismiss();
-		} else if (selection && (event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+		}
+	}
+	function commentKeydown(event: KeyboardEvent) {
+		if (
+			event.key === 'Enter' &&
+			!event.shiftKey &&
+			!event.altKey &&
+			!event.isComposing &&
+			event.keyCode !== 229
+		) {
 			event.preventDefault();
+			event.stopPropagation();
 			saveComment();
 		}
 	}
@@ -201,6 +211,8 @@
 				<textarea
 					bind:this={input}
 					bind:value={comment}
+					on:keydown={commentKeydown}
+					enterkeyhint="done"
 					aria-label="Comment"
 					placeholder="Add a comment…"
 					maxlength="2000"
@@ -208,7 +220,11 @@
 					required
 				></textarea>
 				<div class="flex justify-end">
-					<button class="add" disabled={!comment.trim()}>Add annotation</button>
+					<button
+						class="add"
+						title="Enter to add · Shift+Enter for a new line"
+						disabled={!comment.trim()}>Add annotation</button
+					>
 				</div>
 			</form>
 		</div>
