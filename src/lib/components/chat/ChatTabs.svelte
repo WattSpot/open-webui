@@ -89,7 +89,11 @@
 	import VoiceNote from './ChatTabs/VoiceNote.svelte';
 	import Browser from './ChatTabs/Browser.svelte';
 	import SitePreview from './ChatTabs/SitePreview.svelte';
-	import type { Preview, PreviewSelection } from '$lib/utils/previewAnnotations';
+	import {
+		agentDirectory,
+		type Preview,
+		type PreviewSelection
+	} from '$lib/utils/previewAnnotations';
 	import Desktop from './ChatTabs/Desktop.svelte';
 	import XTerminal from './XTerminal.svelte';
 	import CallPanel from './MessageInput/CallPanel.svelte';
@@ -1655,10 +1659,16 @@
 						($terminalServers ?? []).find((server) => server.id === tab.terminalId)?.config
 							?.previews ?? []
 					).find((item: Preview) => item.id === tab.path)}
-					{#if preview}
+					{#if preview && connection}
 						{#key `${chatId}:${tab.id}`}
 							<SitePreview
 								{preview}
+								{connection}
+								{chatId}
+								directory={agentDirectory(history) ||
+									(terminalContext?.terminalId === tab.terminalId &&
+										terminalContext?.currentDirectory) ||
+									'/home/vscode/projects/wattspot'}
 								active={panelVisible && visibleTabIds.has(tab.id) && !chatLoading}
 								onAnnotate={(selection, comment) => onAnnotate(selection, comment, tab.terminalId!)}
 							/>

@@ -1,4 +1,10 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import {
+		terminalRequest,
+		type TerminalConnection,
+		type TerminalProcessOutput
+	} from '$lib/apis/terminal';
 	import {
 		previewSelection,
 		type Preview,
@@ -6,6 +12,71 @@
 	} from '$lib/utils/previewAnnotations';
 	export let preview: Preview;
 	export let active: boolean;
+	export let connection: TerminalConnection;
+	export let chatId: string | null;
+	export let directory: string;
+	let starting = false;
+	let startError = '';
+	const controller = new AbortController();
+	onDestroy(() => controller.abort());
+
+	async function startPreview() {
+		const target =
+			preview.id === 'website'
+				? ['website:dev', 14321]
+				: preview.id === 'app'
+					? ['ws-app:dev', 5174]
+					: null;
+		if (!target || starting) return;
+		starting = true;
+		startError = '';
+		try {
+			const { signal } = controller;
+			let result = await terminalRequest<TerminalProcessOutput>(
+				connection,
+				chatId,
+				'/execute?wait=1&tail=30',
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					signal,
+					body: JSON.stringify({
+						command: `corepack pnpm run ${target[0]}`,
+						cwd: directory,
+						env: { NO_COLOR: '1' }
+					})
+				}
+			);
+			const deadline = Date.now() + 60000;
+			while (true) {
+				const output = result.output.map((entry) => entry.data).join('');
+				if (result.status !== 'running')
+					throw new Error(output.trim() || 'Preview command exited.');
+				// Both Astro and Vite print their local URL once the server is listening.
+				if (
+					['localhost', '127.0.0.1'].some((host) => output.includes(`http://${host}:${target[1]}/`))
+				) {
+					frame.src = preview.url;
+					break;
+				}
+				if (Date.now() >= deadline)
+					throw new Error(
+						'Still waiting for the preview URL. Check the terminal output, then reload.'
+					);
+				result = await terminalRequest<TerminalProcessOutput>(
+					connection,
+					chatId,
+					`/execute/${encodeURIComponent(result.id)}/status?wait=1&tail=30`,
+					{ signal }
+				);
+			}
+		} catch (error) {
+			if (!controller.signal.aborted)
+				startError = error instanceof Error ? error.message : String(error);
+		} finally {
+			starting = false;
+		}
+	}
 	export let onAnnotate: (selection: PreviewSelection, comment: string) => boolean;
 	let frame: HTMLIFrameElement;
 	let nonce = '';
@@ -51,6 +122,13 @@
 	<div
 		class="flex flex-wrap items-center gap-3 border-b border-gray-100 p-2 text-xs dark:border-gray-800"
 	>
+		{#if !ready && (preview.id === 'website' || preview.id === 'app')}
+			<button
+				class="rounded-lg bg-gray-900 px-3 py-2 text-white disabled:opacity-40 dark:bg-gray-100 dark:text-gray-900"
+				disabled={starting || !active}
+				on:click={startPreview}>{starting ? 'Starting…' : 'Start preview'}</button
+			>
+		{/if}
 		<button
 			class="rounded-lg bg-gray-100 px-3 py-2 disabled:opacity-40 dark:bg-gray-800"
 			disabled={!ready || !active}
@@ -70,9 +148,14 @@
 			}}>Reload</button
 		>
 		{#if !ready}<span role="status"
-				>Start this preview in your Workbot. Sign in above, then reload.</span
+				>If Coder asks you to sign in, open the preview above, then reload.</span
 			>{/if}
 	</div>
+	{#if startError}
+		<pre
+			role="alert"
+			class="max-h-40 overflow-auto whitespace-pre-wrap border-b p-2 text-xs">{startError}</pre>
+	{/if}
 	{#if selection}
 		<form
 			class="space-y-2 border-b p-3 text-sm dark:border-gray-800"
