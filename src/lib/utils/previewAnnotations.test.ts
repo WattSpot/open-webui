@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	agentDirectory,
 	annotationPrompt,
+	matchesPreviewRoot,
 	previewSelection,
 	restoreAnnotations
 } from './previewAnnotations';
@@ -18,6 +19,11 @@ const selection = {
 const annotation = { ...selection, id: 'note', terminalId: 'owner', comment: 'Make this clearer' };
 
 describe('preview draft boundary', () => {
+	it('accepts a folder picker trailing slash only for the same checkout', () => {
+		expect(matchesPreviewRoot('/repo/task', '/repo/task/')).toBe(true);
+		expect(matchesPreviewRoot('/repo/task', '/repo/task-2/')).toBe(false);
+		expect(matchesPreviewRoot('/repo/task', undefined)).toBe(false);
+	});
 	it('accepts bounded context only from the configured preview origin', () => {
 		expect(previewSelection(selection, 'https://preview.example')).toEqual(selection);
 		for (const value of [

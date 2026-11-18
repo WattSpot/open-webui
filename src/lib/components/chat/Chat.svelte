@@ -146,6 +146,7 @@
 	import {
 		agentDirectory,
 		annotationPrompt,
+		matchesPreviewRoot,
 		restoreAnnotations,
 		type PreviewAnnotation,
 		type PreviewSelection
@@ -551,7 +552,7 @@
 		const directory = agentDirectory(history) ?? terminalContext?.currentDirectory;
 		if (
 			(Object.keys(history.messages).length && !agentDirectory(history)) ||
-			(directory && directory !== selection.root)
+			(directory && !matchesPreviewRoot(selection.root, directory))
 		) {
 			toast.error('Preview uses a different checkout. Start a new chat for that checkout.');
 			return false;
@@ -4143,7 +4144,7 @@
 					notes.some(
 						(note) =>
 							note.terminalId !== terminalId ||
-							note.root !== (agentDirectory(owner) ?? terminalContext?.currentDirectory)
+							!matchesPreviewRoot(note.root, agentDirectory(owner) ?? terminalContext?.currentDirectory)
 					)
 				)
 					throw new Error(
