@@ -205,7 +205,7 @@
 					required
 				></textarea>
 				<div class="flex justify-end">
-					<button class="add" disabled={!comment.trim()}>Add to draft</button>
+					<button class="add" disabled={!comment.trim()}>Add annotation</button>
 				</div>
 			</form>
 		</div>
