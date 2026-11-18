@@ -49,12 +49,19 @@ describe('preview draft boundary', () => {
 		expect(annotationPrompt('unchanged', [])).toBe('unchanged');
 	});
 	it('renders sent notes separately while preserving ordinary or malformed messages', () => {
-		const second = { ...annotation, comment: 'Second line\nExtra context' };
+		const second = {
+			...annotation,
+			source: 'src/Continue.tsx:12',
+			component: 'Continue',
+			comment: 'Second line\nExtra context'
+		};
 		for (const prompt of ['', 'Please **review**']) {
 			const encoded = annotationPrompt(prompt, [annotation, second]);
 			const display = readAnnotationPrompt(encoded);
 			expect(display?.prompt).toBe(prompt);
 			expect(display?.notes.map((n) => n.comment)).toEqual([annotation.comment, second.comment]);
+			expect(display?.notes[1].source).toBe(second.source);
+			expect(display?.notes[1].component).toBe(second.component);
 			expect(display?.notes[0].selector).toBe(selection.selector);
 			expect(readAnnotationPrompt(encoded + '\nordinary text')).toBeNull();
 		}

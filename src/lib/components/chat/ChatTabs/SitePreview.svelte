@@ -189,7 +189,10 @@
 				<div class="flex items-center gap-2 text-xs">
 					<code class="element-tag">{selection.tag}</code>
 					<span class="min-w-0 flex-1 truncate text-gray-600 dark:text-gray-300"
-						>{selection.label || selection.text}</span
+						>{selection.source?.split('/').pop() ||
+							selection.component ||
+							selection.label ||
+							selection.text}</span
 					>
 					<button type="button" aria-label="Cancel comment" class="icon-button" on:click={dismiss}
 						><XMark /></button

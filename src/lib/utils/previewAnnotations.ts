@@ -3,6 +3,8 @@ export type PreviewSelection = {
 	root: string;
 	url: string;
 	selector: string;
+	source?: string;
+	component?: string;
 	tag: string;
 	role: string;
 	label: string;
@@ -17,7 +19,17 @@ export type PreviewAnnotation = PreviewSelection & {
 export function previewSelection(value: unknown, origin: string): PreviewSelection | null {
 	if (!value || typeof value !== 'object') return null;
 	const item = value as Record<string, unknown>;
-	const limits = { root: 1024, url: 2048, selector: 512, tag: 32, role: 80, label: 200, text: 300 };
+	const limits = {
+		...(item.source !== undefined ? { source: 512 } : {}),
+		...(item.component !== undefined ? { component: 120 } : {}),
+		root: 1024,
+		url: 2048,
+		selector: 512,
+		tag: 32,
+		role: 80,
+		label: 200,
+		text: 300
+	};
 	if (
 		Object.entries(limits).some(
 			([key, limit]) => typeof item[key] !== 'string' || (item[key] as string).length > limit
