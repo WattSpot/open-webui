@@ -90,10 +90,6 @@
 	}
 	export let onAnnotate: (selection: PreviewSelection, comment: string) => boolean;
 	let frame: HTMLIFrameElement;
-	function reloadPreview() {
-		startError = '';
-		frame.src = preview.url;
-	}
 	let nonce = '';
 	let ready = false;
 	let picking = false;
@@ -149,11 +145,19 @@
 			{ type: 'open-webui-preview', version: 1, nonce, action },
 			origin
 		);
-	const connect = () => {
+	function resetPreview() {
 		nonce = crypto.randomUUID();
 		ready = false;
 		picking = false;
 		selection = null;
+	}
+	function reloadPreview() {
+		startError = '';
+		resetPreview();
+		frame.src = preview.url;
+	}
+	const connect = () => {
+		resetPreview();
 		send('connect');
 	};
 	$: if (!active) {
@@ -168,7 +172,6 @@
 		if (data?.type !== 'open-webui-preview' || data.version !== 1 || data.nonce !== nonce) return;
 		if (data.action === 'ready') {
 			ready = true;
-			portInUse = false;
 			startError = '';
 		}
 		if (!active) return;
@@ -255,13 +258,19 @@
 				<pre class="surface error" role="alert">{startError}</pre>
 			{:else if portInUse}
 				<div class="surface p-3 text-sm" role="status">
-					<p>The preview port is already in use.</p>
-					<div class="mt-1 flex flex-wrap gap-2">
-						<a class="underline" href={preview.url} target="_blank" rel="noopener noreferrer"
-							>Open / sign in to Coder</a
-						>
-						<button type="button" class="underline" on:click={reloadPreview}>Reload preview</button>
-					</div>
+					{#if ready}
+						<p>Showing the existing preview. Stop it before switching checkouts.</p>
+					{:else}
+						<p>The preview port is already in use.</p>
+						<div class="mt-1 flex flex-wrap gap-2">
+							<a class="underline" href={preview.url} target="_blank" rel="noopener noreferrer"
+								>Open / sign in to Coder</a
+							>
+							<button type="button" class="underline" on:click={reloadPreview}
+								>Reload preview</button
+							>
+						</div>
+					{/if}
 				</div>
 			{/if}
 			<div class="surface tools">
