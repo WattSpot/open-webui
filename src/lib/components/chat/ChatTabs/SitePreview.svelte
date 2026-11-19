@@ -20,6 +20,7 @@
 	export let directory: string;
 	let starting = false;
 	let startError = '';
+	let portInUse = false;
 	const controller = new AbortController();
 	onDestroy(() => controller.abort());
 
@@ -32,6 +33,7 @@
 					: null;
 		if (!target || starting) return;
 		starting = true;
+		portInUse = false;
 		startError = '';
 		try {
 			const { signal } = controller;
@@ -53,13 +55,19 @@
 			const deadline = Date.now() + 60000;
 			while (true) {
 				const output = result.output.map((entry) => entry.data).join('');
-				if (result.status !== 'running')
+				if (result.status !== 'running') {
+					if (output.includes(`Port ${target[1]} is already in use`)) {
+						portInUse = true;
+						reloadPreview();
+						return;
+					}
 					throw new Error(output.trim() || 'Preview command exited.');
+				}
 				// Both Astro and Vite print their local URL once the server is listening.
 				if (
 					['localhost', '127.0.0.1'].some((host) => output.includes(`http://${host}:${target[1]}/`))
 				) {
-					frame.src = preview.url;
+					reloadPreview();
 					break;
 				}
 				if (Date.now() >= deadline)
@@ -137,11 +145,19 @@
 			{ type: 'open-webui-preview', version: 1, nonce, action },
 			origin
 		);
-	const connect = () => {
+	function resetPreview() {
 		nonce = crypto.randomUUID();
 		ready = false;
 		picking = false;
 		selection = null;
+	}
+	function reloadPreview() {
+		startError = '';
+		resetPreview();
+		frame.src = preview.url;
+	}
+	const connect = () => {
+		resetPreview();
 		send('connect');
 	};
 	$: if (!active) {
@@ -240,6 +256,22 @@
 		<div class="dock" class:selecting={picking}>
 			{#if startError}
 				<pre class="surface error" role="alert">{startError}</pre>
+			{:else if portInUse}
+				<div class="surface p-3 text-sm" role="status">
+					{#if ready}
+						<p>Showing the existing preview. Stop it before switching checkouts.</p>
+					{:else}
+						<p>The preview port is already in use.</p>
+						<div class="mt-1 flex flex-wrap gap-2">
+							<a class="underline" href={preview.url} target="_blank" rel="noopener noreferrer"
+								>Open / sign in to Coder</a
+							>
+							<button type="button" class="underline" on:click={reloadPreview}
+								>Reload preview</button
+							>
+						</div>
+					{/if}
+				</div>
 			{/if}
 			<div class="surface tools">
 				{#if ready}
@@ -274,9 +306,7 @@
 							<button
 								on:click={(e) => {
 									e.currentTarget.closest('details')?.removeAttribute('open');
-									startError = '';
-									frame.src = preview.url;
-									connect();
+									reloadPreview();
 								}}>Reload preview</button
 							>
 						</div>
