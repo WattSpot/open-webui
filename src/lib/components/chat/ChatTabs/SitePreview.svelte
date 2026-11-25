@@ -5,6 +5,7 @@
 	import XMark from '$lib/components/icons/XMark.svelte';
 	import {
 		terminalRequest,
+		TerminalRequestError,
 		type TerminalConnection,
 		type TerminalProcessOutput
 	} from '$lib/apis/terminal';
@@ -18,10 +19,44 @@
 	export let connection: TerminalConnection;
 	export let chatId: string | null;
 	export let directory: string;
-	let starting = false;
+	let launchState: 'idle' | 'waiting' | 'starting' | 'unavailable' = 'idle';
 	let startError = '';
+	let portInUse = false;
+	let previewConnection: 'idle' | 'connecting' | 'failed' = 'idle';
+	let previewConnectionTimer: ReturnType<typeof setTimeout>;
+	$: launching = launchState === 'waiting' || launchState === 'starting';
+	$: launchLabel = {
+		idle: previewConnection === 'connecting' ? 'Connecting…' : 'Start preview',
+		waiting: 'Waiting…',
+		starting: 'Starting…',
+		unavailable: 'Retry'
+	}[launchState];
 	const controller = new AbortController();
-	onDestroy(() => controller.abort());
+	onDestroy(() => {
+		controller.abort();
+		clearTimeout(previewConnectionTimer);
+	});
+
+	async function waitForWorkbot(signal: AbortSignal) {
+		const deadline = Date.now() + 90_000;
+		while (Date.now() < deadline) {
+			signal.throwIfAborted();
+			const timeout = AbortSignal.timeout(Math.max(0, Math.min(5_000, deadline - Date.now())));
+			try {
+				await terminalRequest(connection, chatId, '/api/config', {
+					signal: AbortSignal.any([signal, timeout])
+				});
+				return true;
+			} catch (error) {
+				signal.throwIfAborted();
+				const unavailable =
+					error instanceof TerminalRequestError && [502, 503, 504].includes(error.status);
+				if (!unavailable && !timeout.aborted) throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, deadline - Date.now())));
+		}
+		return false;
+	}
 
 	async function startPreview() {
 		const target =
@@ -30,11 +65,20 @@
 				: preview.id === 'app'
 					? ['ws-app:dev', 5174]
 					: null;
-		if (!target || starting) return;
-		starting = true;
+		if (!target || launching || ready) return;
+		const checkout = directory;
+		launchState = 'waiting';
+		portInUse = false;
 		startError = '';
 		try {
 			const { signal } = controller;
+			if (!(await waitForWorkbot(signal))) {
+				launchState = 'unavailable';
+				return;
+			}
+			signal.throwIfAborted();
+			if (ready) return;
+			launchState = 'starting';
 			let result = await terminalRequest<TerminalProcessOutput>(
 				connection,
 				chatId,
@@ -45,7 +89,7 @@
 					signal,
 					body: JSON.stringify({
 						command: `corepack pnpm run ${target[0]}`,
-						cwd: directory,
+						cwd: checkout,
 						env: { NO_COLOR: '1' }
 					})
 				}
@@ -53,13 +97,19 @@
 			const deadline = Date.now() + 60000;
 			while (true) {
 				const output = result.output.map((entry) => entry.data).join('');
-				if (result.status !== 'running')
+				if (result.status !== 'running') {
+					if (output.includes(`Port ${target[1]} is already in use`)) {
+						portInUse = true;
+						reloadPreview();
+						return;
+					}
 					throw new Error(output.trim() || 'Preview command exited.');
+				}
 				// Both Astro and Vite print their local URL once the server is listening.
 				if (
 					['localhost', '127.0.0.1'].some((host) => output.includes(`http://${host}:${target[1]}/`))
 				) {
-					frame.src = preview.url;
+					reloadPreview();
 					break;
 				}
 				if (Date.now() >= deadline)
@@ -77,7 +127,7 @@
 			if (!controller.signal.aborted)
 				startError = error instanceof Error ? error.message : String(error);
 		} finally {
-			starting = false;
+			if (launchState !== 'unavailable') launchState = 'idle';
 		}
 	}
 	export let onAnnotate: (selection: PreviewSelection, comment: string) => boolean;
@@ -137,11 +187,22 @@
 			{ type: 'open-webui-preview', version: 1, nonce, action },
 			origin
 		);
-	const connect = () => {
+	function resetPreview() {
 		nonce = crypto.randomUUID();
 		ready = false;
 		picking = false;
 		selection = null;
+	}
+	function reloadPreview() {
+		startError = '';
+		resetPreview();
+		clearTimeout(previewConnectionTimer);
+		previewConnection = 'connecting';
+		previewConnectionTimer = setTimeout(() => (previewConnection = 'failed'), 10_000);
+		frame.src = preview.url;
+	}
+	const connect = () => {
+		resetPreview();
 		send('connect');
 	};
 	$: if (!active) {
@@ -155,8 +216,11 @@
 		const data = event.data;
 		if (data?.type !== 'open-webui-preview' || data.version !== 1 || data.nonce !== nonce) return;
 		if (data.action === 'ready') {
+			clearTimeout(previewConnectionTimer);
+			previewConnection = 'idle';
 			ready = true;
 			startError = '';
+			if (launchState === 'unavailable') launchState = 'idle';
 		}
 		if (!active) return;
 		if (data.action === 'cancel' && picking) void dismiss();
@@ -180,6 +244,7 @@
 		src={preview.url}
 		title={`${preview.label} preview`}
 		class="absolute inset-0 h-full w-full border-0"
+		class:invisible={!ready}
 		on:load={connect}
 		sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
 	></iframe>
@@ -238,8 +303,46 @@
 		</div>
 	{:else}
 		<div class="dock" class:selecting={picking}>
-			{#if startError}
+			{#if launchState === 'waiting' || launchState === 'unavailable'}
+				<div class="surface p-3 text-sm" role="status">
+					<p>
+						{launchState === 'waiting' ? 'Waiting for Workbot…' : 'Workbot is still unreachable.'}
+					</p>
+					<a
+						class="underline"
+						href="https://coder.wattspot.co.nz"
+						target="_blank"
+						rel="noopener noreferrer">Open Coder</a
+					>
+				</div>
+			{:else if startError}
 				<pre class="surface error" role="alert">{startError}</pre>
+			{:else if portInUse}
+				<div class="surface p-3 text-sm" role="status">
+					{#if ready}
+						<p>Showing the existing preview. Stop it before switching checkouts.</p>
+					{:else}
+						<p>The preview port is already in use.</p>
+						<div class="mt-1 flex flex-wrap gap-2">
+							<a class="underline" href={preview.url} target="_blank" rel="noopener noreferrer"
+								>Open / sign in to Coder</a
+							>
+							<button type="button" class="underline" on:click={reloadPreview}
+								>Reload preview</button
+							>
+						</div>
+					{/if}
+				</div>
+			{:else if previewConnection === 'failed'}
+				<div class="surface p-3 text-sm" role="status">
+					<p>The preview page hasn’t connected.</p>
+					<div class="mt-1 flex flex-wrap gap-2">
+						<a class="underline" href={preview.url} target="_blank" rel="noopener noreferrer"
+							>Open / sign in</a
+						>
+						<button type="button" class="underline" on:click={reloadPreview}>Reload preview</button>
+					</div>
+				</div>
 			{/if}
 			<div class="surface tools">
 				{#if ready}
@@ -254,8 +357,10 @@
 						{#if picking}<XMark />Cancel selection{:else}<ChatBubble />Annotate{/if}
 					</button>
 				{:else if preview.id === 'website' || preview.id === 'app'}
-					<button class="action" disabled={starting || !active} on:click={startPreview}
-						>{starting ? 'Starting…' : 'Start preview'}</button
+					<button
+						class="action"
+						disabled={launching || previewConnection === 'connecting' || !active}
+						on:click={startPreview}>{launchLabel}</button
 					>
 				{/if}
 				{#if !picking}
@@ -274,9 +379,7 @@
 							<button
 								on:click={(e) => {
 									e.currentTarget.closest('details')?.removeAttribute('open');
-									startError = '';
-									frame.src = preview.url;
-									connect();
+									reloadPreview();
 								}}>Reload preview</button
 							>
 						</div>
